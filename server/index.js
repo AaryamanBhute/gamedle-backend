@@ -157,12 +157,14 @@ const validateToken = (info)=>{
 
 //endpoints
 app.post('/makegame', (req, res) => {
+  console.log("making game")
   if(typeof req.body.game_type !== "string"){return}
   const id = createNewGame(req.body.game_type, req.body.password)
   res.json({success: true, token: joinGame(id, req.body.password, req.body.name)});
 })
 
 app.post('/joingame', (req, res) => {
+  console.log("joining game")
   var token = joinGame(req.body.id, req.body.password, req.body.name)
   if(token === null){
     res.json({success: false, token: null})
