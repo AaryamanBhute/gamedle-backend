@@ -41,7 +41,7 @@ const app = express();
 const server = http.createServer(app);
 app.use(
   cors({
-    origin: ['http://localhost:3000', 'https://gamedle.onrender.com/']
+    origin: '*'
   }))
 app.use(bodyParser.json())
 app.use(bodyParser.urlencoded({ extended: false }))
