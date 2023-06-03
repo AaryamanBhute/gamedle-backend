@@ -155,7 +155,15 @@ const validateToken = (info)=>{
   return(true);
 }
 
+
+
+
 //endpoints
+
+app.get('/', (req, res) => {
+  res.json({valid: true})
+})
+
 app.post('/makegame', (req, res) => {
   console.log("making game")
   if(typeof req.body.game_type !== "string"){return}
