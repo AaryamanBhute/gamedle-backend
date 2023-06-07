@@ -11,6 +11,7 @@ const jwt_decode = require('jwt-decode');
 const sqlite3 = require('sqlite3').verbose();
 var LocalStorage = require('node-localstorage').LocalStorage
 const Database = require('better-sqlite3');
+const { getRandomValues } = require('crypto');
 require('dotenv').config();
 
 //db setup
@@ -23,6 +24,7 @@ dict.pragma('journal_mode = WAL')
 
 //var setup
 const alphabet = [...Array(26)].map((_, i) => String.fromCharCode(i + 97));
+const vowels = ["a", "e", "i", "o", "u"];
 
 //local storage
 var sockets = new LocalStorage('./sockets');
@@ -31,10 +33,9 @@ sockets.clear()
 //clear db
 db.prepare("DELETE FROM Games").run() //clear records of Games
 for (let row of db.prepare("SELECT name from sqlite_master where type='table'").all()){
-  if(row.name !== 'Games'){
-    db.prepare(`DROP TABLE ${row.name}`).run();
-  }
+  db.prepare(`DROP TABLE ${row.name}`).run();
 }
+db.prepare('CREATE TABLE "Games" ("ID" INTEGER, "GameType" TEXT, "Password" TEXT, "Data" TEXT, "Finished" INTEGER)').run();
 
 //server setup
 const app = express();
@@ -52,8 +53,17 @@ function getRandomLetter() {
   return alphabet[Math.floor(Math.random() * alphabet.length)]
 }
 
+function getRandomVowel(){
+  return vowels[Math.floor(Math.random() * vowels.length)]
+}
+
 const genRandomLetters = (len)=>{
-  return [...Array(len)].map((_, i) => getRandomLetter());
+  const letters = []
+  for (let i = 0; i < 8; i++){
+    if(i%3 == 0) letters.push(getRandomVowel())
+    else letters.push(getRandomLetter())
+  }
+  return(letters)
 }
 
 const getToken = (payload)=>{
@@ -73,6 +83,20 @@ const attemptDelete = (id)=>{
     db.prepare(`DELETE FROM Games WHERE ID=${id};`).run()
     db.prepare(`DROP TABLE _${id}`).run();
   }
+}
+
+const complete = (id)=>{
+  const info = db.prepare(`SELECT Data FROM Games WHERE ID='${id}'`).get()
+  if(info === undefined) return
+  const data = JSON.parse(info.Data)
+  const time = Math.floor(Date.now()/1000)
+  if(time < data.end_time) return
+  db.prepare(`UPDATE Games SET Finished=1 WHERE ID='${id}'`).run()
+  var sockets = db.prepare(`SELECT SocketID FROM _${id} WHERE Active = 1`).all()
+  sockets.forEach((e)=>{
+    var socketById = io.sockets.sockets.get(e.SocketID)
+    socketById.emit('finished')
+  })
 }
 
 const sendPlayerInfos = (id)=>{
@@ -99,13 +123,15 @@ const createNewGame = (game_type, password)=>{
   var data = null;
   switch(game_type){
     case 'Anagrams':
-      data = JSON.stringify({letters: genRandomLetters(8), start_time: Math.floor(Date.now() / 1000)})
+      var start_time = Math.floor(Date.now() / 1000)
+      data = JSON.stringify({letters: genRandomLetters(8), start_time: start_time, end_time: start_time + 300})
       db.prepare(`CREATE TABLE "_${id}"("PlayerNumber" INTEGER, "PlayerName" TEXT, "Words" TEXT, "Score" INTEGER, "Active" INTEGER, "SocketID" TEXT);`).run()
+      setTimeout(complete, 305000, id)
       break
     default:
       return
   }
-  db.prepare(`INSERT INTO Games(ID, GameType, Password, Data) VALUES(${id}, '${game_type}', '${password}', '${data}')`).run()
+  db.prepare(`INSERT INTO Games(ID, GameType, Password, Data, Finished) VALUES(${id}, '${game_type}', '${password}', '${data}', 0)`).run()
   setTimeout(attemptDelete, 300000, id) //if nobody joins in 5 minutes delete
   return(id)
 }
@@ -204,7 +230,7 @@ io.on('connection', (socket) => {
       socket.emit("join fail")
       return
     }
-    var row = db.prepare(`SELECT * FROM Games WHERE ID='${info.id}'`).get()
+    var row = db.prepare(`SELECT * FROM Games WHERE ID='${info.id}' AND Finished=0`).get()
     if(row === undefined || row.GameType !== 'Anagrams'){return}
     var letters = JSON.parse(row.Data).letters
     row = db.prepare(`SELECT Words FROM _${info.id} WHERE PlayerNumber=${info.player_number}`).get()
